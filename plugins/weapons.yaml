@@ -1,0 +1,77 @@
+weapons:
+  - name: M14b
+    defaultPull: 4.0
+    initialDuration: 0.2
+    steadyPull: 2.2
+    sleepTime: 8
+    acceleration: 200.0
+
+  - name: VKT
+    defaultPull: 2.0
+    initialDuration: 0.5
+    steadyPull: 1.8
+    sleepTime: 8
+    acceleration: 200.0
+
+  - name: MK47
+    defaultPull: 2.8
+    initialDuration: 0.5
+    steadyPull: 1.6
+    sleepTime: 8
+    acceleration: 200.0
+
+  - name: SR25
+    defaultPull: 1
+    initialDuration: 0.5
+    steadyPull: 1
+    sleepTime: 8
+    acceleration: 200.0
+  
+  - name: K416
+    defaultPull: 2.8
+    initialDuration: 0.5
+    steadyPull: 2
+    sleepTime: 8
+    acceleration: 200.0
+
+  - name: AUGz
+    defaultPull: 1
+    initialDuration: 0.5
+    steadyPull: 1.5
+    sleepTime: 8
+    acceleration: 200.0
+  
+  - name: M250
+    defaultPull: 1
+    initialDuration: 0.5
+    steadyPull: 1.4
+    sleepTime: 8
+    acceleration: 200.0  
+
+  - name: SR25L
+    defaultPull: 1.2
+    initialDuration: 0.5
+    steadyPull: 1.4
+    sleepTime: 8
+    acceleration: 200.0
+
+  - name: test
+    defaultPull: 1.2
+    initialDuration: 0.5
+    steadyPull: 1.4
+    sleepTime: 8
+    acceleration: 200.0
+
+  - name: test
+    defaultPull: 1.2
+    initialDuration: 0.5
+    steadyPull: 1.4
+    sleepTime: 8
+    acceleration: 200.0
+
+  - name: test
+    defaultPull: 1.2
+    initialDuration: 0.5
+    steadyPull: 1.4
+    sleepTime: 8
+    acceleration: 200.0

@@ -1,0 +1,9 @@
+# Core dependencies
+keyboard>=0.13
+pynput>=1.7
+
+# Optional YAML support (only needed if you use YAML weapon configs)
+pyyaml>=6.0
+
+# Packaging (optional, only for building exe via PyInstaller)
+pyinstaller>=6.0
