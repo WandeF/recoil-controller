@@ -49,6 +49,7 @@ def _runtime_base() -> Path:
 BASE_DIR = _runtime_base()
 PLUG_DIR = BASE_DIR / "plugins"
 os.makedirs(PLUG_DIR, exist_ok=True)
+SETTINGS_PATH = BASE_DIR / "user_settings.json"
 
 
 class PluginManager:
@@ -612,6 +613,8 @@ class RecoilControllerApp:
 
         self.click_delay = 20
         self.click_rand = 20
+        self._settings_cache = {}
+        self._load_settings()
 
         self.ui = ControlPanel(self)
         self.ui.refresh_weapon_list([w.name for w in self.pm.weapons], self.current_weapon_index())
@@ -656,6 +659,61 @@ class RecoilControllerApp:
         print(line)
         if self.ui:
             self.ui.enqueue_log(line)
+    def _load_settings(self):
+        data = {}
+        try:
+            if SETTINGS_PATH.exists():
+                data = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+        except Exception as exc:
+            print(f"[Settings] 加载失败: {exc}")
+            data = {}
+        self._settings_cache = data or {}
+
+        def _bool(name, default):
+            return bool(self._settings_cache.get(name, default))
+
+        self.state.fire_enabled = _bool("fire_enabled", self.state.fire_enabled)
+        self.state.flash_mode = _bool("flash_mode", self.state.flash_mode)
+        self.state.auto_click_enabled = _bool("auto_click_enabled", self.state.auto_click_enabled)
+        self.state.press_key_enabled = _bool("press_key_enabled", self.state.press_key_enabled)
+
+        key_bindings = self._settings_cache.get("key_bindings")
+        if isinstance(key_bindings, dict):
+            for action, key in key_bindings.items():
+                if action in self.state.key_bindings and isinstance(key, str):
+                    self.state.key_bindings[action] = key.strip().lower()
+
+        self.click_delay = int(self._settings_cache.get("click_delay", self.click_delay))
+        self.click_rand = int(self._settings_cache.get("click_rand", self.click_rand))
+
+        char = self._settings_cache.get("press_key_char")
+        if isinstance(char, str) and char:
+            self.state.press_key_char = char[0].lower()
+
+        weapon_name = self._settings_cache.get("current_weapon")
+        if weapon_name and self.pm.weapons:
+            for w in self.pm.weapons:
+                if w.name == weapon_name:
+                    self.state.current_weapon = w
+                    break
+
+    def _persist_state(self):
+        data = {
+            "fire_enabled": self.state.fire_enabled,
+            "flash_mode": self.state.flash_mode,
+            "auto_click_enabled": self.state.auto_click_enabled,
+            "press_key_enabled": self.state.press_key_enabled,
+            "press_key_char": self.state.press_key_char,
+            "click_delay": self.click_delay,
+            "click_rand": self.click_rand,
+            "key_bindings": self.state.key_bindings,
+            "current_weapon": self.state.current_weapon.name if self.state.current_weapon else None,
+        }
+        self._settings_cache = data
+        try:
+            SETTINGS_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception as exc:
+            print(f"[Settings] 保存失败: {exc}")
 
     def _register_hotkeys(self):
         self.hotkeys.register("fire", self.state.key_bindings["fire"], self._toggle_fire_hotkey)
@@ -697,6 +755,7 @@ class RecoilControllerApp:
             if self.engine:
                 self.engine.release_trigger()
         self.ui.sync_fire(value)
+        self._persist_state()
 
     def set_flash_mode(self, value: bool, source: str = "ui"):
         value = bool(value)
@@ -713,6 +772,7 @@ class RecoilControllerApp:
             self.log("[Assoc] F→I 已关闭")
             self._disable_flash_hook()
         self.ui.sync_flash(value)
+        self._persist_state()
 
     def _enable_flash_hook(self):
         if self.flash_hook_id is not None:
@@ -749,6 +809,7 @@ class RecoilControllerApp:
             self.click_thread.clear_click_state()
             self.log("[Clicker] 连点关闭")
         self.ui.sync_auto(value)
+        self._persist_state()
 
     def set_press_key_enabled(self, value: bool, source: str = "ui"):
         value = bool(value)
@@ -765,6 +826,7 @@ class RecoilControllerApp:
                 self.engine.release_trigger()
             self.log("[Trigger] 自动按键功能已关闭")
         self.ui.sync_press(value)
+        self._persist_state()
 
     def update_click_params(self, base: int, rand: int):
         self.click_delay = max(1, base)
@@ -773,6 +835,7 @@ class RecoilControllerApp:
             self.click_thread._delay_ms = self.click_delay
             self.click_thread._rand_ms = self.click_rand
         self.log(f"[Clicker] 连点延迟 {self.click_delay} ± {self.click_rand} ms")
+        self._persist_state()
 
     def update_press_key_char(self, value: str):
         raw = (value or "").strip()
@@ -787,6 +850,7 @@ class RecoilControllerApp:
             self.ui.sync_press_key_char(char)
         if changed:
             self.log(f"[Trigger] 自动按键设置为 {char.upper()}")
+        self._persist_state()
 
     def current_weapon_index(self) -> int:
         if not self.state.current_weapon or not self.pm.weapons:
@@ -805,6 +869,7 @@ class RecoilControllerApp:
         self.ui.update_current_weapon(self.state.current_weapon.name)
         self.ui.highlight_weapon(index)
         self.log(f"[Weapon] {self.state.current_weapon.name}")
+        self._persist_state()
 
     def step_weapon(self, delta: int):
         idx = self.current_weapon_index()
@@ -824,6 +889,7 @@ class RecoilControllerApp:
         self.ui.refresh_weapon_list(names, self.current_weapon_index())
         self.ui.update_current_weapon(self.state.current_weapon.name if self.state.current_weapon else "None")
         self.log("[Plugin] 插件列表已刷新")
+        self._persist_state()
 
     def update_hotkey(self, action: str, key: str):
         if action not in self.state.key_bindings:
@@ -832,6 +898,7 @@ class RecoilControllerApp:
         self.state.key_bindings[action] = norm
         self.hotkeys.update_key(action, norm)
         self.ui.update_key_label(action, norm)
+        self._persist_state()
 
     def restart_program(self):
         args = [sys.executable] if getattr(sys, 'frozen', False) else [sys.executable, __file__]

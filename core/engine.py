@@ -297,8 +297,26 @@ class AutoClickThread(threading.Thread):
         self._rand_ms = rand_ms
         self._running = True
         self._clicking = False
-        self._begin_synth = begin_synth
-        self._end_synth = end_synth
+        self._synthing = False
+        self._last_synth_ts = 0.0
+        self._hold_shadow = False
+
+        def _wrap_begin():
+            self._synthing = True
+            try:
+                begin_synth()
+            except Exception:
+                self._synthing = False
+                raise
+
+        def _wrap_end():
+            try:
+                end_synth()
+            finally:
+                self._synthing = False
+
+        self._begin_synth = _wrap_begin
+        self._end_synth = _wrap_end
 
         self.user32 = ctypes.windll.user32
         self.MOUSEEVENTF_LEFTDOWN = 0x0002
@@ -315,6 +333,7 @@ class AutoClickThread(threading.Thread):
             # 给监听一点点时间过滤当前这帧的事件
             time.sleep(0.002)
             self._end_synth()
+            self._last_synth_ts = time.perf_counter()
 
     def stop(self):
         self._running = False
@@ -325,6 +344,7 @@ class AutoClickThread(threading.Thread):
         if self._clicking:
             self._clicking = False
             self._log("[Clicker] 状态已重置")
+        self._hold_shadow = False
 
     def _physical_left_pressed(self) -> bool:
         """Check the hardware mouse state to avoid missing release events."""
@@ -337,19 +357,26 @@ class AutoClickThread(threading.Thread):
         while self._running:
             st = self._get_state()
             auto_enabled = bool(st.get("auto_click_enabled", False))
-            left_hold = bool(st.get("left_hold", False))
-            if not left_hold:
-                left_hold = self._physical_left_pressed()
+            user_hold = bool(st.get("left_hold", False))
+            physical_hold = self._physical_left_pressed()
+            now = time.perf_counter()
+
+            if user_hold:
+                self._hold_shadow = True
+            elif (not physical_hold) and (not self._synthing) and (now - self._last_synth_ts > 0.03):
+                self._hold_shadow = False
+
+            left_hold = physical_hold or self._hold_shadow
 
             if auto_enabled and left_hold:
                 if not self._clicking:
                     self._clicking = True
-                    self._log("[Clicker] ????")
+                    self._log("[Clicker] 连点开启")
                 self.click_once()
                 delay = max(1, self._delay_ms + random.randint(-self._rand_ms, self._rand_ms))
                 time.sleep(delay / 1000.0)
             else:
                 if self._clicking:
                     self._clicking = False
-                    self._log("[Clicker] ????")
+                    self._log("[Clicker] 连点结束")
                 time.sleep(0.01)
