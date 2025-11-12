@@ -14,11 +14,11 @@ weapons:
     acceleration: 200.0
 
   - name: MK47
-    defaultPull: 2.8
-    initialDuration: 0.5
-    steadyPull: 1.6
-    sleepTime: 8
-    acceleration: 200.0
+    defaultPull: 3
+    initialDuration: 0.3
+    steadyPull: 2
+    sleepTime: 16
+    acceleration: 150
 
   - name: SR25
     defaultPull: 1
@@ -44,19 +44,19 @@ weapons:
   - name: M250
     defaultPull: 1
     initialDuration: 0.5
-    steadyPull: 1.4
-    sleepTime: 8
-    acceleration: 200.0  
+    steadyPull: 1
+    sleepTime: 16
+    acceleration: 200
 
   - name: SR25L
-    defaultPull: 1.2
+    defaultPull: 2
     initialDuration: 0.5
-    steadyPull: 1.4
+    steadyPull: 2
     sleepTime: 8
     acceleration: 200.0
 
-  - name: test
-    defaultPull: 1.2
+  - name: TL
+    defaultPull: 1.6
     initialDuration: 0.5
     steadyPull: 1.4
     sleepTime: 8

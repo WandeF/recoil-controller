@@ -6,7 +6,7 @@ import json
 import time
 import threading
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Any
 import queue
 import ctypes
 from ctypes import wintypes
@@ -267,41 +267,21 @@ class HotkeyManager:
     def __init__(self, root: tk.Tk, log: Callable[[str], None]):
         self._root = root
         self._log = log
-        self._bindings: Dict[str, Dict[str, Optional[int]]] = {}
+        self._bindings: Dict[str, Dict[str, Any]] = {}
         self._paused = False
+        self._pressed: set[str] = set()
+        self._hook = keyboard.hook(self._handle_event, suppress=False)
 
     def register(self, action: str, key: str, callback: Callable[[], None]):
-        self._bindings[action] = {"key": None, "handle": None, "callback": callback}
+        self._bindings[action] = {"key": None, "callback": callback}
         self.update_key(action, key)
-
-    def _add_handle(self, action: str, key: str) -> Optional[int]:
-        def _wrapped():
-            self._root.after(0, self._bindings[action]["callback"])
-
-        try:
-            return keyboard.add_hotkey(key, _wrapped, suppress=False)
-        except Exception as exc:
-            self._log(f"[Hotkey] 绑定 {key} 失败: {exc}")
-            return None
-
-    def _remove_handle(self, action: str):
-        handle = self._bindings.get(action, {}).get("handle")
-        if handle is not None:
-            try:
-                keyboard.remove_hotkey(handle)
-            except Exception:
-                pass
-            self._bindings[action]["handle"] = None
 
     def update_key(self, action: str, key: str):
         info = self._bindings.get(action)
         if not info:
             return
-        self._remove_handle(action)
         norm = (key or "").strip().lower()
         info["key"] = norm
-        if norm and not self._paused:
-            info["handle"] = self._add_handle(action, norm)
         if norm:
             self._log(f"[Hotkey] {action} -> {norm}")
         else:
@@ -310,22 +290,40 @@ class HotkeyManager:
     def pause_all(self):
         if self._paused:
             return
-        for action in list(self._bindings.keys()):
-            self._remove_handle(action)
         self._paused = True
+        self._pressed.clear()
 
     def resume_all(self):
         if not self._paused:
             return
         self._paused = False
-        for action, info in self._bindings.items():
-            if info["key"]:
-                info["handle"] = self._add_handle(action, info["key"])
+        self._pressed.clear()
 
     def shutdown(self):
-        for action in list(self._bindings.keys()):
-            self._remove_handle(action)
+        if self._hook is not None:
+            try:
+                keyboard.unhook(self._hook)
+            except Exception:
+                pass
+            self._hook = None
+        self._pressed.clear()
         self._paused = True
+
+    def _handle_event(self, event):
+        if self._paused:
+            return
+        name = (event.name or "").lower()
+        if not name:
+            return
+        if event.event_type == "down":
+            if name in self._pressed:
+                return
+            self._pressed.add(name)
+            for info in self._bindings.values():
+                if info.get("key") == name and callable(info.get("callback")):
+                    self._root.after(0, info["callback"])
+        elif event.event_type == "up":
+            self._pressed.discard(name)
 
 
 class ControlPanel:
