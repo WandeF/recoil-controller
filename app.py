@@ -1,7 +1,6 @@
 ﻿# app.py
 import os
 import sys
-import subprocess
 import json
 import time
 import threading
@@ -21,6 +20,13 @@ from tkinter import ttk, messagebox
 
 import keyboard
 from pynput import mouse
+try:
+    import pystray
+    from PIL import Image, ImageDraw
+except Exception:
+    pystray = None
+    Image = None
+    ImageDraw = None
 
 from core.engine import RecoilEngine, AutoClickThread
 from core.plugin_api import WeaponConfig
@@ -31,6 +37,7 @@ DEFAULT_KEY_BINDINGS = {
     "flash": "f9",
     "auto_click": "=",
     "press_key": "f10",
+    "win_macro": "left ctrl",
 }
 
 
@@ -131,6 +138,7 @@ class State:
         self.auto_click_enabled = False
         self.press_key_enabled = True
         self.press_key_char = "p"
+        self.win_macro_enabled = False
         self.current_weapon: Optional[WeaponConfig] = None
 
         self.right_hold = False
@@ -155,6 +163,7 @@ class State:
             "flash_mode": self.flash_mode,
             "auto_click_enabled": self.auto_click_enabled,
             "press_key_enabled": self.press_key_enabled,
+            "win_macro_enabled": self.win_macro_enabled,
             "right_hold": self.right_hold,
             "left_hold": self.left_hold,
         }
@@ -340,9 +349,11 @@ class ControlPanel:
         self.binding_labels: Dict[str, ttk.Label] = {}
         self.capture_action: Optional[str] = None
         self.capture_hook = None
+        self.tray_icon = None
+        self._allow_close = False
 
         self._build_layout()
-        self.root.protocol("WM_DELETE_WINDOW", self.app.shutdown)
+        self.root.protocol("WM_DELETE_WINDOW", self._handle_close)
         self.root.after(150, self._flush_logs)
 
     def _setup_theme(self):
@@ -387,6 +398,7 @@ class ControlPanel:
         self.auto_var = tk.BooleanVar(value=self.app.state.auto_click_enabled)
         self.press_key_var = tk.BooleanVar(value=self.app.state.press_key_enabled)
         self.press_key_value = tk.StringVar(value=self.app.state.press_key_char.upper())
+        self.win_macro_var = tk.BooleanVar(value=self.app.state.win_macro_enabled)
 
         ttk.Checkbutton(switches, text="压枪总开关", variable=self.fire_var,
                         command=lambda: self.app.set_fire_enabled(self.fire_var.get())).grid(row=0, column=0, padx=6, pady=4, sticky="w")
@@ -396,6 +408,8 @@ class ControlPanel:
                         command=lambda: self.app.set_auto_click_enabled(self.auto_var.get())).grid(row=0, column=2, padx=6, pady=4, sticky="w")
         ttk.Checkbutton(switches, text="自动按触发键", variable=self.press_key_var,
                         command=lambda: self.app.set_press_key_enabled(self.press_key_var.get())).grid(row=0, column=3, padx=6, pady=4, sticky="w")
+        ttk.Checkbutton(switches, text="Win→Alt+D", variable=self.win_macro_var,
+                        command=lambda: self.app.set_win_macro_enabled(self.win_macro_var.get())).grid(row=0, column=4, padx=6, pady=4, sticky="w")
 
         trigger_frame = ttk.Labelframe(left_col, text="触发键设置")
         trigger_frame.pack(fill="x", pady=6)
@@ -442,6 +456,7 @@ class ControlPanel:
             ("fire", "压枪开关"),
             ("press_key", "自动按键"),
             ("flash", "F→I"),
+             ("win_macro", "Win→Alt+D"),
             ("auto_click", "连点开关"),
         )
         for row, (action, label) in enumerate(binding_rows):
@@ -526,6 +541,9 @@ class ControlPanel:
     def sync_press_key_char(self, value: str):
         self.press_key_value.set((value or "P").upper())
 
+    def sync_win_macro(self, value: bool):
+        self.win_macro_var.set(bool(value))
+
     def refresh_weapon_list(self, names: List[str], selected_index: int):
         self.weapon_list.configure(state=tk.NORMAL)
         self.weapon_list.delete(0, tk.END)
@@ -573,6 +591,56 @@ class ControlPanel:
         value = self.press_key_value.get()
         self.app.update_press_key_char(value)
 
+    def _handle_close(self):
+        if self._allow_close:
+            self.root.destroy()
+            return
+        self.hide_to_tray()
+
+    def hide_to_tray(self):
+        if pystray is None or Image is None or ImageDraw is None:
+            self.root.iconify()
+            self.app.log("[UI] 已最小化窗口（未启用托盘图标）")
+            return
+        self.root.withdraw()
+        if self.tray_icon:
+            return
+
+        def _show(_icon, _item):
+            self.root.after(0, self.show_from_tray)
+
+        def _exit(_icon, _item):
+            self.root.after(0, self.app.shutdown)
+
+        menu = pystray.Menu(
+            pystray.MenuItem("显示窗口", _show, default=True),
+            pystray.MenuItem("退出程序", _exit),
+        )
+        image = self._tray_image()
+        self.tray_icon = pystray.Icon("RecoilController", image, "Recoil Controller", menu)
+        threading.Thread(target=self.tray_icon.run, daemon=True).start()
+        self.app.log("[UI] 窗口已隐藏到托盘")
+
+    def show_from_tray(self):
+        if self.tray_icon:
+            try:
+                self.tray_icon.stop()
+            except Exception:
+                pass
+            self.tray_icon = None
+        self.root.deiconify()
+        try:
+            self.root.lift()
+        except Exception:
+            pass
+
+    def _tray_image(self):
+        img = Image.new("RGBA", (64, 64), (15, 17, 29, 255))
+        draw = ImageDraw.Draw(img)
+        draw.ellipse((8, 8, 56, 56), fill=(59, 130, 246, 255))
+        draw.rectangle((20, 28, 44, 40), fill=(15, 17, 29, 255))
+        return img
+
     def enqueue_log(self, line: str):
         self.log_queue.put(line)
 
@@ -592,6 +660,13 @@ class ControlPanel:
         self.root.after(0, func)
 
     def close(self):
+        self._allow_close = True
+        if self.tray_icon:
+            try:
+                self.tray_icon.stop()
+            except Exception:
+                pass
+            self.tray_icon = None
         try:
             self.root.destroy()
         except Exception:
@@ -619,6 +694,7 @@ class RecoilControllerApp:
         self.ui.update_current_weapon(self.state.current_weapon.name if self.state.current_weapon else "None")
         self.ui.set_click_fields(self.click_delay, self.click_rand)
         self.ui.sync_press_key_char(self.state.press_key_char)
+        self.ui.sync_win_macro(self.state.win_macro_enabled)
 
         self.hotkeys = HotkeyManager(self.ui.root, self.log)
         self._register_hotkeys()
@@ -626,8 +702,12 @@ class RecoilControllerApp:
         self._register_navigation_hotkeys()
 
         self.flash_hook_id = None
+        self.win_macro_hooks: List = []
+        self._win_macro_handler = None
         self.mouse_listener = mouse.Listener(on_click=self._on_mouse)
         self.mouse_listener.start()
+        if self.state.win_macro_enabled:
+            self._enable_win_macro()
 
         self.engine = RecoilEngine(
             get_state=lambda: self.state.as_dict(),
@@ -674,6 +754,7 @@ class RecoilControllerApp:
         self.state.flash_mode = _bool("flash_mode", self.state.flash_mode)
         self.state.auto_click_enabled = _bool("auto_click_enabled", self.state.auto_click_enabled)
         self.state.press_key_enabled = _bool("press_key_enabled", self.state.press_key_enabled)
+        self.state.win_macro_enabled = _bool("win_macro_enabled", self.state.win_macro_enabled)
 
         key_bindings = self._settings_cache.get("key_bindings")
         if isinstance(key_bindings, dict):
@@ -701,6 +782,7 @@ class RecoilControllerApp:
             "flash_mode": self.state.flash_mode,
             "auto_click_enabled": self.state.auto_click_enabled,
             "press_key_enabled": self.state.press_key_enabled,
+            "win_macro_enabled": self.state.win_macro_enabled,
             "press_key_char": self.state.press_key_char,
             "click_delay": self.click_delay,
             "click_rand": self.click_rand,
@@ -717,6 +799,7 @@ class RecoilControllerApp:
         self.hotkeys.register("fire", self.state.key_bindings["fire"], self._toggle_fire_hotkey)
         self.hotkeys.register("press_key", self.state.key_bindings["press_key"], self._toggle_press_key_hotkey)
         self.hotkeys.register("flash", self.state.key_bindings["flash"], self._toggle_flash_hotkey)
+        self.hotkeys.register("win_macro", self.state.key_bindings["win_macro"], self._toggle_win_macro_hotkey)
         self.hotkeys.register("auto_click", self.state.key_bindings["auto_click"], self._toggle_auto_hotkey)
 
     def _register_navigation_hotkeys(self):
@@ -737,6 +820,9 @@ class RecoilControllerApp:
 
     def _toggle_auto_hotkey(self):
         self.set_auto_click_enabled(not self.state.auto_click_enabled, source="hotkey")
+
+    def _toggle_win_macro_hotkey(self):
+        self.set_win_macro_enabled(not self.state.win_macro_enabled, source="hotkey")
 
     def set_fire_enabled(self, value: bool, source: str = "ui"):
         value = bool(value)
@@ -793,6 +879,32 @@ class RecoilControllerApp:
                 pass
             self.flash_hook_id = None
 
+    def _enable_win_macro(self):
+        if self.win_macro_hooks:
+            return
+        def handler(event):
+            if event.event_type == "down":
+                try:
+                    keyboard.send('alt+d')
+                except Exception as exc:
+                    self.log(f"[Macro] 发送 Alt+D 失败: {exc}")
+        self._win_macro_handler = handler
+        for key_name in ("windows", "left windows", "right windows"):
+            try:
+                hook = keyboard.hook_key(key_name, handler, suppress=True)
+                self.win_macro_hooks.append(hook)
+            except Exception as exc:
+                self.log(f"[Macro] 注册 {key_name} 失败: {exc}")
+
+    def _disable_win_macro(self):
+        for hook in self.win_macro_hooks:
+            try:
+                keyboard.unhook(hook)
+            except Exception:
+                pass
+        self.win_macro_hooks.clear()
+        self._win_macro_handler = None
+
     def set_auto_click_enabled(self, value: bool, source: str = "ui"):
         value = bool(value)
         if self.state.auto_click_enabled == value:
@@ -825,6 +937,22 @@ class RecoilControllerApp:
             self.log("[Trigger] 自动按键功能已关闭")
         self.ui.sync_press(value)
         self._persist_state()
+
+    def set_win_macro_enabled(self, value: bool, source: str = "ui"):
+        value = bool(value)
+        changed = (self.state.win_macro_enabled != value)
+        self.state.win_macro_enabled = value
+        if value:
+            self._enable_win_macro()
+            if changed:
+                self.log("[Macro] Win→Alt+D 已开启")
+        else:
+            self._disable_win_macro()
+            if changed:
+                self.log("[Macro] Win→Alt+D 已关闭")
+        self.ui.sync_win_macro(value)
+        if changed:
+            self._persist_state()
 
     def update_click_params(self, base: int, rand: int):
         self.click_delay = max(1, base)
@@ -876,17 +1004,22 @@ class RecoilControllerApp:
         self.switch_weapon(idx + delta)
 
     def refresh_plugins(self):
-        self.pm.load()
-        if self.pm.weapons:
-            names = [w.name for w in self.pm.weapons]
+        try:
+            self.pm.load()
+        except Exception as exc:
+            self.log(f"[Plugin] 刷新失败: {exc}")
+            return
+
+        names = [w.name for w in self.pm.weapons]
+        if not names:
+            self.state.current_weapon = None
+        else:
+            # 尝试保留当前武器，否则退回第一项
             if not self.state.current_weapon or self.state.current_weapon.name not in names:
                 self.state.current_weapon = self.pm.weapons[0]
-        else:
-            names = []
-            self.state.current_weapon = None
         self.ui.refresh_weapon_list(names, self.current_weapon_index())
         self.ui.update_current_weapon(self.state.current_weapon.name if self.state.current_weapon else "None")
-        self.log("[Plugin] 插件列表已刷新")
+        self.log("[Plugin] 插件列表已刷新并重新加载配置")
         self._persist_state()
 
     def update_hotkey(self, action: str, key: str):
@@ -927,6 +1060,7 @@ class RecoilControllerApp:
                     pass
         self.nav_hotkeys.clear()
         self._disable_flash_hook()
+        self._disable_win_macro()
         if self.mouse_listener:
             self.mouse_listener.stop()
         if self.click_thread:
@@ -942,7 +1076,16 @@ class RecoilControllerApp:
             self.ui.run()
         finally:
             if self._restart_args:
-                subprocess.Popen(self._restart_args)
+                self._perform_restart()
+
+    def _perform_restart(self):
+        try:
+            if getattr(sys, 'frozen', False):
+                os.execl(self._restart_args[0], self._restart_args[0])
+            else:
+                os.execl(self._restart_args[0], *self._restart_args)
+        except Exception as exc:
+            self.log(f"[System] 重启失败: {exc}")
 
 
 def main():

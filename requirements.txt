@@ -7,3 +7,7 @@ pyyaml>=6.0
 
 # Packaging (optional, only for building exe via PyInstaller)
 pyinstaller>=6.0
+
+# Tray support (optional, for system tray icon)
+pystray>=0.19
+Pillow>=10.0

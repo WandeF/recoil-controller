@@ -62,16 +62,23 @@ weapons:
     sleepTime: 8
     acceleration: 200.0
 
-  - name: test
-    defaultPull: 1.2
-    initialDuration: 0.5
-    steadyPull: 1.4
-    sleepTime: 8
+  - name: MK4
+    defaultPull: 2
+    initialDuration: 0.3
+    steadyPull: 1
+    sleepTime: 10
     acceleration: 200.0
 
-  - name: test
-    defaultPull: 1.2
+  - name: qcq171
+    defaultPull: 2
     initialDuration: 0.5
-    steadyPull: 1.4
-    sleepTime: 8
+    steadyPull: 2
+    sleepTime: 10
     acceleration: 200.0
+
+  - name: M250
+    defaultPull: 0.5
+    initialDuration: 0.5
+    steadyPull: 0.5
+    sleepTime: 16
+    acceleration: 200
